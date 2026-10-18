@@ -11,12 +11,15 @@ process.env.REDIS_HOST = ''; // Redis desativado por padrão nos testes
 const { test, after } = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
-const { app, server } = require('../src/server');
+const mod = require('../src/server');
+const { app } = mod;
 const db = require('../src/db');
 const redisMod = require('../src/redis');
 
 // Encerramento completo ao fim da suíte: fecha o listener, o Redis e o pool
-after(() => server.close());
+after(() => {
+  if (mod.server) mod.server.close();
+});
 
 after(() => redisMod.shutdownRedis());
 

@@ -10,8 +10,12 @@ const redisMod = require('./redis');
 const app = express();
 app.use(express.json());
 
-// A app só responde depois do banco estar pronto (espera o CREATE TABLE)
-let bancoPronto = db.ensureSchema();
+// Prontidão: UMA promessa única, resolvida pelo main após o retry bem-sucedido.
+// (Reatribuir a variável não liberaria quem já aguardava a promessa antiga!)
+let liberarBanco;
+const bancoPronto = new Promise((res) => {
+  liberarBanco = res;
+});
 app.use((req, res, next) => bancoPronto.then(() => next(), next));
 
 // Log de requisições no stdout (método, rota, status) — pedido no PRD
@@ -20,14 +24,65 @@ app.use((req, res, next) => {
   next();
 });
 
-// Serve os arquivos estáticos (página HTML) da pasta "public"
-app.use(express.static(path.join(__dirname, 'public')));
-
 // PORT é um exemplo clássico de configuração externa via variável de ambiente (como no Docker)
 const PORT = parseInt(process.env.PORT, 10) || 3000;
-const server = app.listen(PORT, () => {
-  console.log(`App ouvindo em http://0.0.0.0:${PORT}`);
+
+let server = null;
+let encerramentoEmAndamento = false;
+
+// Subida: conecta no Postgres com RETRY (10 tentativas) ANTES de ouvir a porta
+async function main() {
+  console.log('Iniciando Mural de Recados...');
+  await db.connectWithRetry();
+  liberarBanco(); // libera as requisições que estavam esperando
+  server = app.listen(PORT, () => {
+    console.log(`App ouvindo em http://0.0.0.0:${PORT}`);
+  });
+}
+
+main().catch((e) => {
+  console.error('FALHA AO INICIAR:', e.message);
+  if ((process.env.DB_HOST || 'localhost') === 'localhost') {
+    console.error('DICA: dentro de um container, o Postgres não está em localhost. Use o nome do serviço (ex.: DB_HOST=postgres).');
+  }
+  process.exit(1);
 });
+
+// Encerramento limpo no SIGTERM/SIGINT: para de aceitar requisições,
+// fecha o Redis e o pool do Postgres, e sai — para o `docker compose stop`
+// terminar em poucos segundos
+async function encerrar() {
+  if (encerramentoEmAndamento) return;
+  encerramentoEmAndamento = true;
+  if (server) {
+    try {
+      server.close();
+    } catch {
+      // listener já fechado
+    }
+  }
+  try {
+    await db.shutdownPostgres();
+  } catch {
+    // já fechado
+  }
+  try {
+    await redisMod.shutdownRedis();
+  } catch {
+    // já fechado
+  }
+  process.exit(0);
+}
+
+['SIGTERM', 'SIGINT'].forEach((sinal) => {
+  process.on(sinal, () => {
+    console.log(`Recebido ${sinal}, encerrando...`);
+    encerrar();
+  });
+});
+
+// Serve os arquivos estáticos (página HTML) da pasta "public"
+app.use(express.static(path.join(__dirname, 'public')));
 
 // Validação do PRD (RF1): autor 1–50 caracteres, mensagem 1–500, ambos string
 function validarRecado(autor, mensagem) {
@@ -83,4 +138,10 @@ app.get('/saude', async (req, res) => {
   res.json({ app: 'ok', postgres, redis: await redisMod.pingRedis() });
 });
 
-module.exports = { app, server };
+module.exports = {
+  app,
+  // getter: o listener nasce depois do retry — avaliado no momento do uso
+  get server() {
+    return server;
+  },
+};
