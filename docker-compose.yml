@@ -1,0 +1,51 @@
+# Compose do Mural de Recados — os 4 serviços da oficina "Docker do Zero"
+# Eles se enxergam pelo NOME do serviço na rede interna do Compose:
+# a app fala com postgres e redis; adminer fala com o postgres.
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000" # ÚNICA porta publicada para a rede local
+    environment:
+      PORT: 3000
+      DB_HOST: postgres   # não é localhost! é o nome do serviço no Compose
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      REDIS_HOST: ${REDIS_HOST:-}   # do .env; vazio desativa o contador
+      REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy # espera o pg_isready decidir
+      redis:
+        condition: service_started
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # os recados sobrevivem ao `compose down`
+    ports:
+      - "127.0.0.1:5432:5432" # restrito AO NOTEBOOK do instrutor (não à rede)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-admin} -d $${POSTGRES_DB:-oficina}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine # SEM ports: só a app fala com ele, pela rede interna
+
+  adminer:
+    image: adminer
+    ports:
+      - "127.0.0.1:8080:8080" # interface do Postgres, só na máquina local
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:
