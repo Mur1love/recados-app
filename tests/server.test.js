@@ -12,8 +12,13 @@ const { test, after } = require('node:test');
 const assert = require('node:assert');
 const request = require('supertest');
 const { app, server } = require('../src/server');
+const db = require('../src/db');
+const redisMod = require('../src/redis');
 
+// Encerramento completo ao fim da suíte: fecha o listener, o Redis e o pool
 after(() => server.close());
+
+after(() => redisMod.shutdownRedis());
 
 const AUTOR_VALIDO = 'Ana';
 const MENSAGEM_VALIDA = 'Oi!';
@@ -89,4 +94,58 @@ test('GET /recados respeita LIMIT 50', async () => {
   assert.strictEqual(res.status, 200);
   assert.strictEqual(res.body.length, 50);
   assert.strictEqual(res.body[0].mensagem, 'm-59');
+});
+
+test('GET /visitas sem Redis (padrão dos testes): 503 com erro', async () => {
+  process.env.REDIS_HOST = '';
+  try {
+    const res = await request(app).get('/visitas');
+    assert.strictEqual(res.status, 503);
+    assert.strictEqual(res.body.erro, 'Redis indisponível');
+  } finally {
+    process.env.REDIS_HOST = '';
+  }
+});
+
+test('GET /visitas com Redis real: INCR crescente e 200', async () => {
+  process.env.REDIS_HOST = '127.0.0.1';
+  process.env.REDIS_PORT = '6379';
+  try {
+    const r1 = await request(app).get('/visitas');
+    assert.strictEqual(r1.status, 200);
+    assert.strictEqual(typeof r1.body.visitas, 'number');
+    assert.ok(r1.body.visitas >= 1);
+    const r2 = await request(app).get('/visitas');
+    assert.strictEqual(r2.status, 200);
+    assert.strictEqual(r2.body.visitas, r1.body.visitas + 1);
+  } finally {
+    process.env.REDIS_HOST = '';
+    process.env.REDIS_PORT = '6379';
+  }
+});
+
+test('GET /visitas com Redis inalcançável: 503 sem crash e /saude segue viva', async () => {
+  process.env.REDIS_HOST = '127.0.0.1';
+  process.env.REDIS_PORT = '6399';
+  try {
+    const res = await request(app).get('/visitas');
+    assert.strictEqual(res.status, 503);
+    assert.strictEqual(res.body.erro, 'Redis indisponível');
+    const saude = await request(app).get('/saude');
+    assert.strictEqual(saude.status, 200);
+  } finally {
+    process.env.REDIS_HOST = '';
+  }
+});
+
+test('GET /saude com Redis configurado e no ar: redis=ok', async () => {
+  process.env.REDIS_HOST = '127.0.0.1';
+  process.env.REDIS_PORT = '6379';
+  try {
+    const res = await request(app).get('/saude');
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(res.body.redis, 'ok');
+  } finally {
+    process.env.REDIS_HOST = '';
+  }
 });

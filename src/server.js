@@ -5,6 +5,7 @@
 const path = require('path');
 const express = require('express');
 const db = require('./db');
+const redisMod = require('./redis');
 
 const app = express();
 app.use(express.json());
@@ -69,10 +70,17 @@ app.get('/recados', async (req, res, next) => {
   }
 });
 
-// GET /saude — estado de cada dependência (redis real chega no Task 3)
+// GET /visitas — contador de visitas no Redis; 503 em português se indisponível
+app.get('/visitas', async (req, res) => {
+  const n = await redisMod.getVisitas();
+  if (n === null) return res.status(503).json({ erro: 'Redis indisponível' });
+  res.json({ visitas: n });
+});
+
+// GET /saude — estado de cada dependência
 app.get('/saude', async (req, res) => {
-  const postgres = await db.pingPostgres() ? 'ok' : 'erro';
-  res.json({ app: 'ok', postgres, redis: 'desativado' });
+  const postgres = (await db.pingPostgres()) ? 'ok' : 'erro';
+  res.json({ app: 'ok', postgres, redis: await redisMod.pingRedis() });
 });
 
 module.exports = { app, server };
