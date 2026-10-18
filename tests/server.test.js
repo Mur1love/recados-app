@@ -153,6 +153,16 @@ test('GET /saude com Redis configurado e no ar: redis=ok', async () => {
   }
 });
 
+test('POST /recados com JSON malformado: 400 com erro em JSON, nunca HTML do Express', async () => {
+  const res = await request(app)
+    .post('/recados')
+    .set('Content-Type', 'application/json')
+    .send('{ isso nao é json');
+  assert.strictEqual(res.status, 400);
+  assert.match(res.headers['content-type'], /json/, `esperava JSON, veio ${res.headers['content-type']}`);
+  assert.ok(res.body.erro, `faltou campo "erro" em português: ${res.text}`);
+});
+
 test('Página / carrega com estrutura obrigatória', async () => {
   const res = await request(app).get('/');
   assert.strictEqual(res.status, 200);
@@ -171,4 +181,13 @@ test('Página / carrega com estrutura obrigatória', async () => {
   for (const peça of exigidos) {
     assert.ok(html.includes(peça), `faltando na página: ${peça}`);
   }
+});
+
+test('POST /recados com pool fechado: 500 com erro em JSON, nunca HTML do Express', async () => {
+  // ÚLTIMO teste do arquivo: encerramos o pool de propósito para simular falha de banco
+  await db.getPool().end();
+  const res = await criarRecado(AUTOR_VALIDO, MENSAGEM_VALIDA);
+  assert.strictEqual(res.status, 500);
+  assert.match(res.headers['content-type'], /json/, `esperava JSON, veio ${res.headers['content-type']}`);
+  assert.ok(res.body.erro, `faltou campo "erro" em português: ${res.text}`);
 });

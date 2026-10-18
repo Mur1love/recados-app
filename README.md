@@ -103,7 +103,12 @@ docker compose exec redis redis-cli GET visitas
    - Linux: `ip a`
    - Mac: `ifconfig`
 2. **Suba a aplicação:** `docker compose up -d` (a porta 3000 já está publicada para a rede).
-3. **Acesse do celular** conectado na **mesma rede Wi-Fi**: abra `http://IP-DO-NOTEBOOK:3000` no navegador, ou teste via `curl http://IP-DO-NOTEBOOK:3000/recados`.
+3. **Acesse do celular** conectado na **mesma rede Wi-Fi**: abra `http://IP-DO-NOTEBOOK:3000` no navegador, ou teste do outro notebook/celular com:
+   ```bash
+   curl -X POST http://IP-DO-NOTEBOOK:3000/recados \
+     -H 'Content-Type: application/json' \
+     -d '{"autor":"Ana","mensagem":"Teste pela rede"}'
+   ```
 4. **Se não funcionar**, verifique nesta ordem:
    - **Isolamento de clientes no Wi-Fi** (client isolation): impede dispositivos de se enxergarem. Solução: use o **hotspot do celular**.
    - **Firewall do Windows** bloqueando a porta 3000 ou o Docker Desktop para redes privadas.

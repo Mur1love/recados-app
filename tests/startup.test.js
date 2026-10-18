@@ -77,4 +77,10 @@ test('SIGTERM: encerra de forma limpa e rápida', async () => {
   const { code, stdout: saida } = await esperarSaida(proc, 10000);
   assert.strictEqual(code, 0, `esperava exit 0, veio ${code}\n${saida}`);
   assert.ok(saida.includes('encerrando'), `faltou log de encerramento:\n${saida}\n(${stdout})`);
+  // O fechamento do HTTP deve COMPLETAR (callback do server.close) antes do exit:
+  // requisições em andamento precisam terminar com o Postgres ainda de pé.
+  assert.ok(
+    saida.includes('Servidor HTTP fechado após drenar'),
+    `Server.close deve completar antes do exit (requisições em andamento):\n${saida}\n(${stdout})`
+  );
 });

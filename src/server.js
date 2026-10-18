@@ -48,15 +48,22 @@ main().catch((e) => {
   process.exit(1);
 });
 
-// Encerramento limpo no SIGTERM/SIGINT: para de aceitar requisições,
-// fecha o Redis e o pool do Postgres, e sai — para o `docker compose stop`
-// terminar em poucos segundos
+// Encerramento limpo no SIGTERM/SIGINT: primeiro ESPERAMOS terminar as
+// requisições HTTP em andamento (server.close completa de verdade), depois
+// fechamos pool do Postgres e Redis, e só então saímos — para o
+// `docker compose stop` terminar em poucos segundos sem cortar respostas no meio
 async function encerrar() {
   if (encerramentoEmAndamento) return;
   encerramentoEmAndamento = true;
   if (server) {
     try {
-      server.close();
+      // closeIdleConnections derruba conexões keep-alive ociosas; requisições
+      // EM ANDAMENTO continuam até terminar (o callback do close só dispara então)
+      if (typeof server.closeIdleConnections === 'function') {
+        server.closeIdleConnections();
+      }
+      await new Promise((resolve) => server.close(() => resolve()));
+      console.log('Servidor HTTP fechado após drenar conexões');
     } catch {
       // listener já fechado
     }
@@ -136,6 +143,18 @@ app.get('/visitas', async (req, res) => {
 app.get('/saude', async (req, res) => {
   const postgres = (await db.pingPostgres()) ? 'ok' : 'erro';
   res.json({ app: 'ok', postgres, redis: await redisMod.pingRedis() });
+});
+
+// Última camada de erros: a API responde {"erro": "..."} em português para
+// QUALQUER falha — JSON malformado do corpo e erros imprevistos de banco/rota
+// (senão o Express devolve a página HTML padrão do erro, sem campo "erro")
+app.use((erro, req, res, next) => {
+  if (erro && (erro.type === 'entity.parse.failed' || erro instanceof SyntaxError)) {
+    return res.status(400).json({ erro: 'O corpo da requisição não é um JSON válido.' });
+  }
+  console.error('Erro não tratado:', erro && erro.message ? erro.message : erro);
+  if (res.headersSent) return next(erro);
+  return res.status(500).json({ erro: 'Erro interno no servidor.' });
 });
 
 module.exports = {
