@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <!-- deixa a página legível e responsiva em telas pequenas (celular dos participantes) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mural de Recados</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 0;
+      padding: 16px;
+      max-width: 640px;
+      background: #fafafa;
+      color: #222;
+    }
+    header { text-align: center; margin-bottom: 24px; }
+    #contador { color: #666; font-size: 14px; }
+    form { display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; }
+    input, textarea, button {
+      font-size: 16px;
+      font-family: inherit;
+      padding: 12px;
+      border: 1px solid #bbb;
+      border-radius: 8px;
+      background: #fff;
+    }
+    textarea { min-height: 90px; resize: vertical; }
+    button {
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      font-weight: 600;
+    }
+    button:active { opacity: .85; }
+    #mensagem-erro { color: #b91c1c; font-size: 14px; margin: 0; }
+    ul#lista-recados { list-style: none; padding: 0; margin: 0; }
+    #lista-recados li {
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+    }
+    #lista-recados .autor { font-weight: 600; }
+    #lista-recados .quando { color: #888; font-size: 12px; margin-top: 6px; display: block; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Mural de Recados</h1>
+    <p id="contador">Contador indisponível</p>
+  </header>
+
+  <form id="form-recado">
+    <input id="autor" name="autor" maxlength="50" placeholder="Seu nome" required>
+    <textarea name="mensagem" maxlength="500" placeholder="Sua mensagem" required></textarea>
+    <button type="submit">Enviar</button>
+    <p id="mensagem-erro"></p>
+  </form>
+
+  <ul id="lista-recados"></ul>
+
+  <script>
+    // Contador de visitas no topo (GET /visitas); se falhar, mostra mensagem
+    async function atualizarContador() {
+      try {
+        const resposta = await fetch('/visitas');
+        if (!resposta.ok) throw new Error('contador indisponível');
+        const corpo = await resposta.json();
+        document.getElementById('contador').textContent = `Visitas: ${corpo.visitas}`;
+      } catch {
+        document.getElementById('contador').textContent = 'Contador indisponível';
+      }
+    }
+
+    // Carrega os recados (mais recentes primeiro — a API já ordena)
+    async function carregarRecados() {
+      const resposta = await fetch('/recados');
+      const recados = await resposta.json();
+      const lista = document.getElementById('lista-recados');
+      lista.innerHTML = '';
+      for (const recado of recados) {
+        const item = document.createElement('li');
+        const autor = document.createElement('div');
+        autor.className = 'autor';
+        // textContent (nunca innerHTML) evita HTML malicioso na página
+        autor.textContent = recado.autor;
+        const msg = document.createElement('p');
+        msg.textContent = recado.mensagem;
+        const quando = document.createElement('span');
+        quando.className = 'quando';
+        quando.textContent = new Date(recado.criado_em).toLocaleString('pt-BR');
+        item.append(autor, msg, quando);
+        lista.appendChild(item);
+      }
+    }
+
+    // Envia o recado (POST /recados) e atualiza a lista
+    document.getElementById('form-recado').addEventListener('submit', async (evento) => {
+      evento.preventDefault();
+      const erro = document.getElementById('mensagem-erro');
+      erro.textContent = '';
+      try {
+        const resposta = await fetch('/recados', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            autor: document.getElementById('autor').value,
+            mensagem: document.querySelector('[name="mensagem"]').value,
+          }),
+        });
+        if (!resposta.ok) {
+          const corpo = await resposta.json().catch(() => ({}));
+          throw new Error(corpo.erro || 'Não foi possível enviar seu recado.');
+        }
+        evento.target.reset();
+        await carregarRecados();
+      } catch (e) {
+        erro.textContent = e.message;
+      }
+    });
+
+    atualizarContador();
+    carregarRecados();
+  </script>
+</body>
+</html>

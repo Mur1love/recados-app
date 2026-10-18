@@ -152,3 +152,23 @@ test('GET /saude com Redis configurado e no ar: redis=ok', async () => {
     process.env.REDIS_HOST = '';
   }
 });
+
+test('Página / carrega com estrutura obrigatória', async () => {
+  const res = await request(app).get('/');
+  assert.strictEqual(res.status, 200);
+  assert.match(res.headers['content-type'], /text\/html/);
+  const html = res.text;
+  const exigidos = [
+    '<form id="form-recado">',
+    'id="autor"',
+    'name="mensagem"',
+    'id="lista-recados"',
+    "fetch('/visitas')",
+    "fetch('/recados')",
+    'Contador indisponível',
+    'name="viewport"',
+  ];
+  for (const peça of exigidos) {
+    assert.ok(html.includes(peça), `faltando na página: ${peça}`);
+  }
+});
